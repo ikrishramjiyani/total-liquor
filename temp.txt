@@ -1,0 +1,103 @@
+const { expect } = require('@playwright/test');
+const { addResult } = require('../utils/excelHelper');
+
+class ProductPage {
+
+    constructor(page) {
+        this.page = page;
+    }
+
+    async openProductPage() {
+
+        await this.page.goto('https://total-liquor-mvp.netlify.app/product');
+
+        console.log("Product catalogue page loaded");
+    }
+
+    async testProducts() {
+
+        await this.page.waitForSelector('div.border.rounded-xl', { timeout: 20000 });
+
+        const products = this.page.locator('div.border.rounded-xl');
+
+        const count = await products.count();
+
+        console.log("Products on page:", count);
+
+        for (let i = 0; i < count; i++) {
+
+            const product = products.nth(i);
+
+            await product.scrollIntoViewIfNeeded();
+
+            const productName = await product.locator('h3').innerText();
+
+            console.log("Testing product:", productName);
+
+            let isPassed = false;
+
+            try {
+
+                // Select Bottle Price
+                await product.locator('span')
+                    .filter({ hasText: 'Bottle Price' })
+                    .first()
+                    .click();
+
+                // Click +
+                await product.locator('button')
+                    .filter({ has: this.page.locator('svg') })
+                    .nth(1)
+                    .click();
+
+                console.log("Quantity incremented");
+
+                // Click Add
+                await product.locator('button')
+                    .filter({ hasText: 'Add' })
+                    .first()
+                    .click();
+
+                const toast = this.page.locator('text=Added 1 Bottle to cart').last();
+
+                await toast.waitFor({ state: 'visible', timeout: 5000 });
+
+                isPassed = true;
+
+            }
+            catch (error) {
+
+                console.log("Error:", error.message);
+
+            }
+
+            if (isPassed) {
+
+                await this.page.screenshot({
+                    path: `screenshots/product-${i + 1}.png`
+                });
+
+                addResult(i + 1, productName, "Pass");
+
+                console.log("PASS:", productName);
+
+            }
+            else {
+
+                await this.page.screenshot({
+                    path: `screenshots/product-${i + 1}-failed.png`
+                });
+
+                addResult(i + 1, productName, "Fail");
+
+                console.log("FAIL:", productName);
+
+            }
+        }
+
+        console.log("All products processed.");
+    }
+
+}
+
+module.exports = ProductPage;
