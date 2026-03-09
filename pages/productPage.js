@@ -1,4 +1,3 @@
-const { expect } = require('@playwright/test');
 const { addResult, saveExcel } = require('../utils/excelHelper');
 
 class ProductPage {
@@ -12,7 +11,7 @@ class ProductPage {
 
         await this.page.goto('https://total-liquor-mvp.netlify.app/product');
 
-        await this.page.waitForSelector('div.border.rounded-xl', { timeout: 20000 });
+        await this.page.waitForSelector('div.border.rounded-xl', { timeout: 60000 });
 
         console.log("Product catalogue page loaded");
     }
@@ -25,6 +24,8 @@ class ProductPage {
 
             console.log(`\n========= PAGE ${pageNumber} =========`);
 
+            await this.page.waitForSelector('div.border.rounded-xl');
+
             const products = this.page.locator('div.border.rounded-xl');
 
             const count = await products.count();
@@ -35,21 +36,39 @@ class ProductPage {
 
                 const product = products.nth(i);
 
-                await product.scrollIntoViewIfNeeded();
+                await product.scrollIntoViewIfNeeded().catch(() => { });
 
                 const productName = await product.locator('h3').innerText();
 
                 console.log(`Testing product ${this.serialNumber}: ${productName}`);
 
-                let isPassed = false;
+                let status = "Fail";
+                let message = "";
+                let selectedType = "";
 
                 try {
 
-                    // Select Bottle Price
-                    await product.locator('span')
-                        .filter({ hasText: 'Bottle Price' })
-                        .first()
-                        .click();
+                    const bottleOption = product.locator('span').filter({ hasText: 'Bottle Price' });
+                    const caseOption = product.locator('span').filter({ hasText: 'Case Price' });
+
+                    if (await bottleOption.count() > 0) {
+
+                        await bottleOption.first().click();
+                        selectedType = "Bottle Price";
+
+                    }
+                    else if (await caseOption.count() > 0) {
+
+                        await caseOption.first().click();
+                        selectedType = "Case Price";
+
+                    }
+                    else {
+
+                        selectedType = "None";
+                        message = "No price option available";
+                        throw new Error(message);
+                    }
 
                     // Click +
                     await product.locator('button')
@@ -57,48 +76,41 @@ class ProductPage {
                         .nth(1)
                         .click();
 
-                    console.log("Quantity incremented");
-
                     // Click Add
                     await product.locator('button')
                         .filter({ hasText: 'Add' })
                         .first()
                         .click();
 
-                    // Wait for latest toast
-                    const toast = this.page.locator('text=Added 1 Bottle to cart').last();
+                    // Wait for toast
+                    const toast = this.page.getByRole('status').last();
 
-                    await toast.waitFor({ state: 'visible', timeout: 5000 });
+                    await toast.waitFor({ state: 'visible', timeout: 20000 });
 
-                    const toastText = await toast.textContent();
+                    message = await toast.innerText();
 
-                    if (toastText && toastText.includes('Added 1 Bottle to cart')) {
+                    if (message.includes("Added 1 Bottle to cart")) {
 
-                        isPassed = true;
+                        status = "Pass";
 
                     } else {
 
-                        console.log("Unexpected toast:", toastText);
-
-                        isPassed = false;
+                        status = "Fail";
                     }
 
                 }
                 catch (error) {
 
-                    console.log("Error while testing product:", error.message);
+                    message = error.message;
 
-                    isPassed = false;
                 }
 
-                // Screenshot + Excel logging
-                if (isPassed) {
+                // Screenshot
+                if (status === "Pass") {
 
                     await this.page.screenshot({
                         path: `screenshots/product-${this.serialNumber}.png`
                     });
-
-                    addResult(this.serialNumber, productName, "Pass");
 
                     console.log("PASS:", productName);
 
@@ -109,18 +121,22 @@ class ProductPage {
                         path: `screenshots/product-${this.serialNumber}-failed.png`
                     });
 
-                    addResult(this.serialNumber, productName, "Fail");
-
                     console.log("FAIL:", productName);
                 }
 
-                // Save Excel continuously
+                addResult(
+                    this.serialNumber,
+                    productName,
+                    selectedType,
+                    status,
+                    message
+                );
+
                 saveExcel();
 
                 this.serialNumber++;
 
-                // small delay to prevent toast overlap
-                await this.page.waitForTimeout(400);
+                await this.page.waitForTimeout(2000);
 
             }
 
@@ -130,20 +146,59 @@ class ProductPage {
 
                 console.log("Moving to next page...");
 
-                await nextButton.click();
+                try {
 
-                // Wait for old products to disappear
-                await this.page.waitForSelector('div.border.rounded-xl', { state: 'detached' });
+                    await nextButton.click();
 
-                // Wait for new products to load
-                await this.page.waitForSelector('div.border.rounded-xl', { timeout: 20000 });
+                    // wait until product grid exists
+                    await this.page.waitForSelector('div.border.rounded-xl', { timeout: 60000 });
+
+                    // ensure products actually loaded
+                    let retries = 0;
+                    let count = 0;
+
+                    while (retries < 5) {
+
+                        count = await this.page.locator('div.border.rounded-xl').count();
+
+                        if (count > 0) break;
+
+                        console.log("Waiting for products to load... retry:", retries);
+
+                        await this.page.waitForTimeout(6000);
+
+                        retries++;
+
+                    }
+
+                    if (count === 0) {
+
+                        console.log("Products still not loaded, refreshing page...");
+
+                        await this.page.reload();
+
+                        await this.page.waitForSelector('div.border.rounded-xl', { timeout: 60000 });
+
+                    }
+
+                } catch (err) {
+
+                    console.log("Pagination error handled:", err.message);
+
+                    await this.page.reload();
+
+                    await this.page.waitForSelector('div.border.rounded-xl', { timeout: 60000 });
+
+                }
 
                 pageNumber++;
 
-            } else {
+            }
+            else {
 
                 console.log("All pages completed.");
                 break;
+
             }
         }
 

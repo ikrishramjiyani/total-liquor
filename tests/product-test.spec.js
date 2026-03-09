@@ -1,6 +1,6 @@
 const { test } = require('@playwright/test');
-const LoginPage = require('../pages/LoginPage');
-const ProductPage = require('../pages/ProductPage');
+const LoginPage = require('../pages/loginPage');
+const ProductPage = require('../pages/productPage');
 const config = require('../utils/config');
 const { saveExcel } = require('../utils/excelHelper');
 
